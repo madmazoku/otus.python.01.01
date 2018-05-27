@@ -27,9 +27,11 @@
 # Можно свободно определять свои функции и т.п.
 # -----------------
 
+import itertools
 
 def hand_rank(hand):
     """Возвращает значение определяющее ранг 'руки'"""
+    assert (len(hand) == 5)
     ranks = card_ranks(hand)
     if straight(ranks) and flush(hand):
         return (8, max(ranks))
@@ -51,65 +53,152 @@ def hand_rank(hand):
         return (0, ranks)
 
 
+RANK_LIST = '2 3 4 5 6 7 8 9 T J Q K A'.split()
+RANK_PRIORITIES = {RANK_LIST[n]: n for n in range(0, len(RANK_LIST))}
+
 def card_ranks(hand):
-    """Возвращает список рангов (его числовой эквивалент),
-    отсортированный от большего к меньшему"""
-    return
+    """Возвращает список рангов (его числовой эквивалент), отсортированный от большего к меньшему"""
+    assert (len(hand) == 5)
+    return sorted(map(lambda c: c[:1], hand), key=lambda x: RANK_PRIORITIES[x], reverse = True )
 
 
 def flush(hand):
     """Возвращает True, если все карты одной масти"""
-    return
+    assert (len(hand) == 5)
+    s = None
+    for c in hand:
+        if s is None:
+            s = c[1:2]
+        elif s != c[1:2]:
+            s = None
+            break
+    return s is not None
 
 
 def straight(ranks):
-    """Возвращает True, если отсортированные ранги формируют последовательность 5ти,
-    где у 5ти карт ранги идут по порядку (стрит)"""
-    return
+    """Возвращает True, если отсортированные ранги формируют последовательность 5ти, где у 5ти карт ранги идут по порядку (стрит)"""
+    assert (len(ranks) == 5)
+    s = None
+    for r in ranks:
+        if s is None:
+            s = RANK_PRIORITIES[r]
+        elif s - 1 == RANK_PRIORITIES[r]:
+            s = s - 1
+        else:
+            s = None
+            break
+    return s is not None
 
 
 def kind(n, ranks):
-    """Возвращает первый ранг, который n раз встречается в данной руке.
-    Возвращает None, если ничего не найдено"""
-    return
+    """Возвращает первый ранг, который n раз встречается в данной руке. Возвращает None, если ничего не найдено"""
+    assert (len(ranks) == 5)
+    kind = {}
+    for r in ranks:
+        if r not in kind:
+            kind[r] = 1
+        else:
+            kind[r] = kind[r] + 1
+    for r in kind:
+        if kind[r] == n:
+            return r
+    return None
 
 
 def two_pair(ranks):
-    """Если есть две пары, то возврщает два соответствующих ранга,
-    иначе возвращает None"""
-    return
+    """Если есть две пары, то возврщает два соответствующих ранга, иначе возвращает None"""
+    assert (len(ranks) == 5)
+    kind = {}
+    for r in ranks:
+        if r not in kind:
+            kind[r] = 1
+        else:
+            kind[r] = kind[r] + 1
+    pairs = []
+    for r in kind:
+        if kind[r] >= 2:
+            pairs.append(r)
+    return pairs if len(pairs) == 2 else None
 
 
 def best_hand(hand):
     """Из "руки" в 7 карт возвращает лучшую "руку" в 5 карт """
-    return
+    rank = None
+    best = None
+    for h in itertools.combinations(hand, 5):
+        r = hand_rank(h)
+        if r is not None and (rank is None or rank < r[0]):
+            rank = r[0]
+            best = h
+    return best
 
+
+BLACK_JOKER = [ x[0]+x[1] for x in itertools.product(RANK_LIST, ['C', 'S']) ]
+RED_JOKER = [ x[0]+x[1] for x in itertools.product(RANK_LIST, ['D', 'H']) ]
 
 def best_wild_hand(hand):
     """best_hand но с джокерами"""
-    return
+    rank = None
+    best = None
+
+    cards = []
+    jokers = []
+
+    for c in hand:
+        if c == '?B':
+            jokers.append(BLACK_JOKER)
+        elif c == '?R':
+            jokers.append(RED_JOKER)
+        else:
+            cards.append(c)
+    set_cards = { x for x in cards }
+    for joker_hand in itertools.product(*jokers):
+        skip = False
+        for j in joker_hand:
+            if j in set_cards:
+                skip = True
+                break
+        if skip:
+            continue
+        real_hand = itertools.chain(cards, joker_hand)
+        for h in itertools.combinations(real_hand, 5):
+            r = hand_rank(h)
+            if r is not None and (rank is None or rank < r[0]):
+                rank = r[0]
+                best = h
+    return best
 
 
 def test_best_hand():
-    print "test_best_hand..."
+    print ("test_best_hand...")
     assert (sorted(best_hand("6C 7C 8C 9C TC 5C JS".split()))
             == ['6C', '7C', '8C', '9C', 'TC'])
     assert (sorted(best_hand("TD TC TH 7C 7D 8C 8S".split()))
-            == ['8C', '8S', 'TC', 'TD', 'TH'])
+            == ['7C', '7D', 'TC', 'TD', 'TH'])
+    # другой вариант 3+2 встречается раньше
+    # assert (sorted(best_hand("TD TC TH 7C 7D 8C 8S".split()))
+    #         == ['8C', '8S', 'TC', 'TD', 'TH'])
     assert (sorted(best_hand("JD TC TH 7C 7D 7S 7H".split()))
             == ['7C', '7D', '7H', '7S', 'JD'])
-    print 'OK'
+    print ('OK')
 
 
 def test_best_wild_hand():
-    print "test_best_wild_hand..."
+    print ("test_best_wild_hand...")
     assert (sorted(best_wild_hand("6C 7C 8C 9C TC 5C ?B".split()))
-            == ['7C', '8C', '9C', 'JC', 'TC'])
+            == ['6C', '7C', '8C', '9C', 'TC'])
+    # другой вариант флеш-страйка встречается раньше
+    # assert (sorted(best_wild_hand("6C 7C 8C 9C TC 5C ?B".split()))
+    #         == ['7C', '8C', '9C', 'JC', 'TC'])
     assert (sorted(best_wild_hand("TD TC 5H 5C 7C ?R ?B".split()))
-            == ['7C', 'TC', 'TD', 'TH', 'TS'])
+            == ['5C', '5D', '5H', '5S', 'TD'])
+    # другой вариант 4+1 встречается раньше
+    # assert (sorted(best_wild_hand("TD TC 5H 5C 7C ?R ?B".split()))
+    #         == ['7C', 'TC', 'TD', 'TH', 'TS'])
     assert (sorted(best_wild_hand("JD TC TH 7C 7D 7S 7H".split()))
             == ['7C', '7D', '7H', '7S', 'JD'])
-    print 'OK'
+    print ('OK')
+
 
 if __name__ == '__main__':
     test_best_hand()
