@@ -44,16 +44,6 @@ class Counter:
 def countcalls(func):
     '''Decorator that counts calls made to the function decorated.'''
 
-    class Counter:
-        def __init__(self):
-            self.counter = 0
-
-        def inc(self):
-            self.counter += 1
-
-        def __str__(self):
-            return '{:d}'.format(self.counter)
-
     @wraps(func)
     def wrapper(*args):
         wrapper.calls.inc()
