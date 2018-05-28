@@ -1,0 +1,5 @@
+{
+    "REPORT_SIZE": 1000,
+    "REPORT_DIR": "../material/reports",
+    "LOG_DIR": "../material/logg"
+}
