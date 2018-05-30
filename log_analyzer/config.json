@@ -1,7 +1,7 @@
 {
     "REPORT_SIZE": 1000,
-    "REPORT_DIR": "../material/reports",
+    "REPORT_DIR": "../material/report",
     "LOG_DIR": "../material/log",
     "TMP_DIR": "../material/tmp",
-    "REPORT_TEMPLATE": "../material/reports/report.html"
+    "REPORT_TEMPLATE": "../material/report/report.html"
 }

@@ -9,7 +9,7 @@
 import argparse
 import json
 import logging
-import copy
+import os
 import pathlib
 import re
 import tempfile
@@ -17,21 +17,25 @@ import gzip
 import subprocess
 import time
 import shutil
+import random
+import csv
 
 DEFAULT_CONFIG = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
     "REPORT_TEMPLATE": "./report.html",
     "LOG_DIR": "./log",
-    "PARSE_ERROR_RATIO": 0.01,
-    "MEDIAN_BAG_SIZE": 1000
+    "PARSE_ERROR_RATE": 0.01,
+    "MEDIAN_BAG_SIZE": 1000,
+    "MEDIAN_BAG_SAMPLE_RATE": 0.75,
+    "TMP_DIR": None,
+    "SCRIPT_LOG_PATH": None
 }
 DEFAULT_CONFIG_JSON_PATH = './config.json'
 
 # LOG_PARSE_PATTERN = re.compile('.+"(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)\\s([^\\s]+)\\s.+\\s([\\d\\.]+)\\n')
-LOG_PARSE_PATTERN = re.compile(
-    '.+?\\]\\s"[^\\s"]+\\s([^\\s"]+)\\s.+\\s([\\d\\.]+)\\n')
-URL_PARSE_PATTERN = re.compile('([^\\t]+)\\t([\\d\\.]+)\n')
+LOG_NAME_PATTERN = re.compile('nginx-access-ui.log-(\\d{8})(\\.gz)?')
+LOG_PARSE_PATTERN = re.compile('.+?\\]\\s"[^\\s"]+\\s([^\\s"]+)\\s.+\\s([\\d\\.]+)\\n')
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s', level='INFO')
@@ -80,11 +84,9 @@ class Progress:
 
 def parse_config():
     args_parser = argparse.ArgumentParser()
-    args_parser.add_argument(
-        "--config", help="path to configuration file in json format", type=str)
+    args_parser.add_argument("--config", help="path to configuration file in json format", type=str)
     args = args_parser.parse_args()
 
-    config = copy.copy(DEFAULT_CONFIG)
     config_json_path = DEFAULT_CONFIG_JSON_PATH if args.config is None else args.config
 
     config_json = None
@@ -100,6 +102,8 @@ def parse_config():
                          config_json_path, e)
         return None
 
+    config = {}
+    config.update(DEFAULT_CONFIG)
     config.update(config_json)
 
     logging.info("CONFIG: %s", config_json_path)
@@ -107,38 +111,64 @@ def parse_config():
         v = config[k]
         logging.info('\t%s: %s', k, v)
 
+    if config['SCRIPT_LOG_PATH'] is not None:
+        script_log_dir = pathlib.Path(config['SCRIPT_LOG_PATH'])
+        if not script_log_dir.parent.is_dir():
+            logging.warning('Script log dir %s not found. Create it.', script_log_dir.parent)
+            script_log_dir.parent.mkdir(parent=True, exist_ok=True)
+        logging.info("CONFIG: %s", config_json_path)
+        for k in sorted(config):
+            v = config[k]
+            logging.info('\t%s: %s', k, v)
+
     return config
 
 
-def last_log(directory):
-    last_log_path = None
-    last_log_date = None
+def last_log(config):
+    log_file_name = None
+    log_date = None
+    log_is_gz = None
 
-    for path in pathlib.Path(directory).iterdir():
-        if not path.is_file():
-            continue
-        match = re.fullmatch('nginx-access-ui.log-(\\d{8})\\.gz', path.name)
-        if match and (last_log_date is None or last_log_date < match.group(1)):
-            last_log_path = path
-            last_log_date = match.group(1)
-    if last_log_date:
-        last_log_date = re.sub('(\\d{4})(\\d\\d)(\\d\\d)', '\\1.\\2.\\3',
-                               last_log_date)
-    return last_log_path, last_log_date
+    log_dir = pathlib.Path(config['LOG_DIR'])
+    if log_dir.is_dir():
+        for file_name in log_dir.iterdir():
+            if not file_name.is_file():
+                continue
+            match = re.fullmatch(LOG_NAME_PATTERN, file_name.name)
+            if match and (log_date is None or log_date < match.group(1)):
+                log_file_name = file_name
+                log_date = match.group(1)
+                log_is_gz = match.group(2) is not None
 
+        if log_date:
+            log_date = re.sub('(\\d{4})(\\d\\d)(\\d\\d)', '\\1.\\2.\\3', log_date)
+    else:
+        logging.warning('Log dir %s not found', log_dir)
 
-def is_log_date_reported(directory, log_date):
-    for path in pathlib.Path(directory).iterdir():
-        if not path.is_file():
-            continue
-        match = re.fullmatch('report-(\\d{4}\\.\\d\\d\\.\\d\\d)\\.html',
-                             path.name)
-        if match and (log_date == match.group(1)):
-            return True
-    return False
+    return log_file_name, log_is_gz, log_date
 
 
-def get_url_info(config, log_path, tmp_dir_name):
+def make_report_file_name(config, log_date):
+    report_dir = pathlib.Path(config['REPORT_DIR'])
+    if not report_dir.is_dir():
+        logging.warning('Report dir %s not found. Create it.', report_dir)
+        report_dir.mkdir(parent=True, exist_ok=True)
+    return pathlib.Path(config['REPORT_DIR']) / 'report-{:s}.html'.format(log_date)
+
+def make_tmp_dir_name(config):
+    tmp_dir = None
+    tmp_dir_name = None
+    if config['TMP_DIR'] is None:
+        tmp_dir = tempfile.TemporaryDirectory()
+        tmp_dir_name = pathlib.Path(tmp_dir.name)
+    else:
+        tmp_dir_name = pathlib.Path(config['TMP_DIR'])
+        if not tmp_dir_name.is_dir():
+            logging.warning('Tmp dir %s not found', tmp_dir_name)
+            tmp_dir_name.mkdir(parents=True, exist_ok=True)
+    return tmp_dir, tmp_dir_name
+
+def get_url_info(config, log_path, log_is_gz, tmp_dir_name):
     url_file_name = pathlib.Path(tmp_dir_name) / 'url.tsv'
     logging.info('Extract data from %s to %s', log_path, url_file_name)
     progress = Progress()
@@ -147,19 +177,20 @@ def get_url_info(config, log_path, tmp_dir_name):
     with gzip.open(str(log_path), 'rt') as log_file:
         with open(str(url_file_name), 'w') as url_file:
             with open(str(url_file_name) + '.err', 'w') as err_url_file:
+                tsv_writer = csv.writer(url_file, delimiter='\t', quoting=csv.QUOTE_NONE)
                 for line in log_file:
                     progress.tick()
                     progress.report()
                     match = re.fullmatch(LOG_PARSE_PATTERN, line)
                     if match:
-                        print('{:s}\t{:s}'.format(match.group(1), match.group(2)), file=url_file)
+                        tsv_writer.writerow([match.group(1), match.group(2),random.random()])
                     else:
                         print(line, file=err_url_file, end='')
                         progress.inc('errors', 1)
     progress.report('Finished')
     if progress.count == 0:
         logging.warning('No lines in the log file {!s}'.format(log_path))
-    if progress.val('errors') and progress.val('errors') / progress.count > config['PARSE_ERROR_RATIO']:
+    if progress.val('errors') and progress.val('errors') / progress.count > config['PARSE_ERROR_RATE']:
         msg = 'Too many unparsed lines in {!s}'.format(log_path)
         logging.critical(msg)
         raise LAE(msg)
@@ -183,29 +214,30 @@ def collect_urls(config, url_file_name, tmp_dir_name):
 class StatCollector:
     def __init__(self, config):
         self.config = config
-        self.storage = []
+        self.median_bag = []
+        self.median_bag_upper_size = self.config['MEDIAN_BAG_SIZE'] / self.config['MEDIAN_BAG_SAMPLE_RATE']
         self.new()
 
     def new(self):
-        del self.storage[:]
-        self.skip = 1
+        del self.median_bag[:]
+        self.rate = 1
         self.count = 0
         self.time_avg = 0
         self.time_sum = 0
         self.time_max = None
 
-    def add(self, process_time):
-        if self.count % self.skip == 0:
-            if len(self.storage) >= self.config['MEDIAN_BAG_SIZE'] * 2:
-                for i in range(len(self.storage), 0, -2):
-                    del self.storage[i - 1]
-                self.skip *= 2
-            self.storage.append(process_time)
+    def add(self, process_time, rnd):
+        if rnd < self.rate:
+            self.median_bag.append({'process_time':process_time, 'rnd': rnd})
+
+        while len(self.median_bag) > self.median_bag_upper_size:
+            self.rate *= self.config['MEDIAN_BAG_SAMPLE_RATE']
+            for i in range(len(self.median_bag), 0, -1):
+                if self.median_bag[i-1]['rnd'] >= self.rate:
+                    del self.median_bag[i-1]
 
         self.count += 1
-        self.time_avg = (
-            self.count -
-            1) / self.count * self.time_avg + process_time / self.count
+        self.time_avg = (self.count - 1) / self.count * self.time_avg + process_time / self.count
         self.time_sum += process_time
 
         if self.time_max is None or self.time_max < process_time:
@@ -213,8 +245,8 @@ class StatCollector:
 
     def finish(self, url):
         if self.count > 0:
-            self.storage.sort()
-            median = self.storage[len(self.storage) // 2]
+            self.median_bag.sort(key = lambda s : s['process_time'])
+            median = self.median_bag[len(self.median_bag) // 2]['process_time']
             stat = {
                 'url': url,
                 'count': self.count,
@@ -244,13 +276,13 @@ class ReportCollector:
         else:
             self.storage.insert(idx, stat)
 
-        if len(self.storage) == self.config['REPORT_SIZE']:
+        if len(self.storage) > self.config['REPORT_SIZE']:
             del self.storage[-1]
 
-    def finish(self, stat_all):
+    def finish(self, count, time_sum):
         for stat in self.storage:
-            stat['count_perc'] = stat['count'] * 100 / stat_all['count']
-            stat['time_perc'] = stat['time_sum'] * 100 / stat_all['time_sum']
+            stat['count_perc'] = stat['count'] * 100 / count
+            stat['time_perc'] = stat['time_sum'] * 100 / time_sum
         storage = self.storage
         self.storage = []
         return storage
@@ -260,48 +292,40 @@ def get_report_info(config, collect_file_name, tmp_dir_name):
     stat_file_name = pathlib.Path(tmp_dir_name) / 'stat.tsv'
     logging.info('Extract stat data from %s to %s', collect_file_name,
                  stat_file_name)
-    stat_all_collector = StatCollector(config)
+    count = 0
+    time_sum = 0
     report_collector = ReportCollector(config)
     progress = Progress()
     report = None
     with open(str(collect_file_name), 'rt') as collect_file:
         with open(str(stat_file_name), 'w') as stat_file:
-            url = None
+            curr_url = None
             stat_collector = StatCollector(config)
-            for line in collect_file:
+            tsv_reader = csv.reader(collect_file, delimiter='\t', quoting=csv.QUOTE_NONE)
+            tsv_writer = csv.writer(stat_file, delimiter='\t', quoting=csv.QUOTE_NONE)
+            for row in tsv_reader:
                 progress.tick()
                 progress.report()
-                match = re.fullmatch(URL_PARSE_PATTERN, line)
-                if match is None:
-                    msg = 'Invalid line "{:s}" in {!s}'.format(
-                        line, collect_file_name)
-                    logging.critical(msg)
-                    raise LAE(msg)
-                if url is None or url != match.group(1):
-                    if url is not None:
-                        stat = stat_collector.finish(url)
+                url = row[0]
+                process_time = float(row[1])
+                rnd = float(row[2])
+                process_time = float(process_time)
+                if curr_url is None or curr_url != url:
+                    if curr_url is not None:
+                        stat = stat_collector.finish(curr_url)
                         report_collector.add(stat)
-                        print(
-                            '{:s}\t{:d}\t{:.3f}\t{:.3f}\t{:.3f}\t{:.3f}'.
-                            format(url, stat['count'], stat['time_sum'],
-                                   stat['time_avg'], stat['time_max'],
-                                   stat['time_med']),
-                            file=stat_file)
-                    url = match.group(1)
+                        tsv_writer.writerow([curr_url, stat['count'], stat['time_sum'],stat['time_avg'], stat['time_max'],stat['time_med']])
+                    curr_url = url
                     progress.inc('uniq')
-                stat_collector.add(float(match.group(2)))
-                stat_all_collector.add(float(match.group(2)))
-            if url is not None:
-                stat = stat_collector.finish(url)
+                stat_collector.add(process_time, rnd)
+                count += 1
+                time_sum += process_time
+            if curr_url is not None:
+                stat = stat_collector.finish(curr_url)
                 report_collector.add(stat)
-                print(
-                    '{:s}\t{:d}\t{:.3f}\t{:.3f}\t{:.3f}\t{:.3f}'.format(
-                        url, stat['count'], stat['time_sum'], stat['time_avg'],
-                        stat['time_max'], stat['time_med']),
-                    file=stat_file)
-            stat_all = stat_all_collector.finish('TOTAL')
-            report = report_collector.finish(stat_all)
-    progress.report('Finished')
+                tsv_writer.writerow([curr_url, stat['count'], stat['time_sum'],stat['time_avg'], stat['time_max'],stat['time_med']])
+            report = report_collector.finish(count, time_sum)
+            progress.report('Finished')
 
     report_file_name = pathlib.Path(tmp_dir_name) / 'report.tsv'
     with open(str(report_file_name), 'w') as report_file:
@@ -317,11 +341,9 @@ def get_report_info(config, collect_file_name, tmp_dir_name):
 
 
 def store_report(config, report, date):
-    report_file_name = pathlib.Path(
-        config['REPORT_DIR']) / ('report-' + date + '.html')
-    logging.info('Store report to %s', report_file_name)
     tmp_report_file_name = pathlib.Path(
         config['TMP_DIR']) / ('report-' + date + '.html')
+    logging.info('Store report to %s', tmp_report_file_name)
     table_json = json.dumps(report)
     with open(config['REPORT_TEMPLATE'], 'rt') as report_template:
         with open(str(tmp_report_file_name), 'w') as report_file:
@@ -330,7 +352,7 @@ def store_report(config, report, date):
                     line.replace('$table_json', table_json),
                     file=report_file,
                     end='')
-    shutil.move(str(tmp_report_file_name), str(report_file_name))
+    return tmp_report_file_name
 
 
 def main():
@@ -338,36 +360,37 @@ def main():
     if config is None:
         return
 
-    try:
-        last_log_path, last_log_date = last_log(config['LOG_DIR'])
-    except FileNotFoundError as e:
-        logging.critical("LOG_DIR %s absent. %s", config['LOG_DIR'], e)
-        return
+    log_file_name, log_is_gz, log_date = last_log(config)
 
-    if last_log_date is None:
+    if log_file_name is None:
         logging.warning('No logs found')
         return
 
-    if is_log_date_reported(config['REPORT_DIR'], last_log_date):
-        logging.warning('Last log %s already reported', last_log_path)
+    report_file_name = make_report_file_name(config, log_date)
+    if report_file_name.is_file():
+        logging.warning('Last log %s already reported to %s', log_file_name, report_file_name)
         return
 
-    logging.info('Make report for date %s. %s', last_log_date, last_log_path)
+    logging.info('Report log %s to %s', log_file_name, report_file_name)
 
-    tmp_dir = None
-    tmp_dir_name = None
-    if 'TMP_DIR' in config:
-        tmp_dir_name = config['TMP_DIR']
-    else:
-        tmp_dir = tempfile.TemporaryDirectory()
-        tmp_dir_name = tmp_dir.name
+    tmp_dir, tmp_dir_name = make_tmp_dir_name(config)
 
-    url_file_name = get_url_info(config, last_log_path, tmp_dir_name)
+    url_file_name = get_url_info(config, log_file_name, log_is_gz, tmp_dir_name)
+
     collect_file_name = collect_urls(config, url_file_name, tmp_dir_name)
+
     report = get_report_info(config, collect_file_name, tmp_dir_name)
 
-    store_report(config, report, last_log_date)
+    tmp_report_file_name = store_report(config, report, log_date)
 
+    logging.info('Move report from %s to %s', tmp_report_file_name, report_file_name)
+    shutil.move(str(tmp_report_file_name), str(report_file_name))
+
+    return
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logging.exception(e)
+    logging.info('Script Finished')
