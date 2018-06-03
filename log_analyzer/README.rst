@@ -27,6 +27,21 @@ Options
         --config    path to config file in json format, like './config.json' 
                     which is default value
 
+Example
+-------
+
+Execute script:
+
+.. code-block:: 
+
+    ./log_analyzer.py
+
+Execute tests:
+
+.. code-block:: 
+
+    ./test_log_analyzer.py
+
 
 Log format
 ==========
