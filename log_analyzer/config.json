@@ -3,5 +3,6 @@
     "REPORT_DIR": "../material/report",
     "LOG_DIR": "../material/log",
     "TMP_DIR": "../material/tmp",
-    "REPORT_TEMPLATE": "../material/report/report.html"
+    "REPORT_TEMPLATE": "../material/report/report.html",
+    "SCRIPT_LOG_PATH": "./log_analyzer.log"
 }
