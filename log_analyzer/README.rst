@@ -135,29 +135,29 @@ Temporary files
 
 Followed files will be created in temporary directory:
 
-    ``nginx-access-ui.log``
-        Uncompressed source if log file is compressed
+``nginx-access-ui.log``
+    Uncompressed source if log file is compressed
 
-    ``url.tsv``
-        Extracted from log data. File format is:
-        ``$url`` ``$processing_time`` ``$random_value``
+``url.tsv``
+    Extracted from log data. File format is:
+    ``$url`` ``$processing_time`` ``$random_value``
 
-    ``url.tsv.err``
-        Unparsed lines from log data.
+``url.tsv.err``
+    Unparsed lines from log data.
 
-    ``collect.tsv``
-        Sorted by url data extracted from log. File format is:
+``collect.tsv``
+    Sorted by url data extracted from log. File format is:
 
-        ``$url`` ``$processing_time`` ``$random_value``
+    ``$url`` ``$processing_time`` ``$random_value``
 
-    ``stat.tsv``
-        Statistic aggregated by url. File format is:
+``stat.tsv``
+    Statistic aggregated by url. File format is:
 
-        ``$url`` ``$count`` ``$time_sum`` ``$time_avg`` ``$time_max``
-        ``$time_med``
+    ``$url`` ``$count`` ``$time_sum`` ``$time_avg`` ``$time_max``
+    ``$time_med``
 
-    ``report.tsv``
-        Report data sorted by ``time_sum``. File format is:
+``report.tsv``
+    Report data sorted by ``time_sum``. File format is:
 
-        ``$url`` ``$count`` ``$count_perc`` ``$time_sum`` ``$time_perc``
-        ``$time_avg`` ``$time_max`` ``$time_med``
+    ``$url`` ``$count`` ``$count_perc`` ``$time_sum`` ``$time_perc``
+    ``$time_avg`` ``$time_max`` ``$time_med``
