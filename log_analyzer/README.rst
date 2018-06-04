@@ -105,7 +105,8 @@ Default config
         "MEDIAN_BAG_SIZE": 1000,
         "MEDIAN_BAG_SAMPLE_RATE": 0.75,
         "TMP_DIR": null,
-        "SCRIPT_LOG_PATH": null
+        "SCRIPT_LOG_PATH": null,
+        "DEBUG": false
     }
 
 
@@ -125,7 +126,7 @@ Default config will be updated from config json file.
 ``LOG_DIR``
     Path to directory which contain log files to be processed
 
-    Log file name must conform format: ``nginx-access-ui.log-YYYYMMDD`` and may 
+    Log file name must conform format: ``nginx-access-ui.log-YYYYMMDD`` and may
     be compressed by gzip in which case it will have ``.gz`` extention 
     additionally
 
@@ -142,8 +143,12 @@ Default config will be updated from config json file.
     Where to store temporary files. Use system tmp dir if null.
 
 ``SCRIPT_LOG_PATH``
-    Where to store script logging, in addition to STDERR. Do not write to file 
+    Where to store script logging, in addition to STDERR. Do not write to file
     if null.
+
+``DEBUG``
+    Enable writing for temporary files ``url.tsv.err``, ``stat.tsv``, 
+    ``report.tsv``
 
 Temporary files
 ===============

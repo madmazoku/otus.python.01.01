@@ -28,7 +28,8 @@ DEFAULT_CONFIG = {
     "MEDIAN_BAG_SIZE": 1000,
     "MEDIAN_BAG_SAMPLE_RATE": 0.75,
     "TMP_DIR": None,
-    "SCRIPT_LOG_PATH": None
+    "SCRIPT_LOG_PATH": None,
+    "DEBUG": False
 }
 DEFAULT_CONFIG_JSON_PATH = './config.json'
 
@@ -134,7 +135,7 @@ def setup():
     return config
 
 
-def last_log(config):
+def get_last_log(config):
     log_file_name = None
     log_date = None
     log_is_gz = None
@@ -201,11 +202,12 @@ def get_url_info(config, log_path, tmp_dir_name):
     url_file_name = pathlib.Path(tmp_dir_name) / 'url.tsv'
     logging.info('Extract data from %s to %s', log_path, url_file_name)
     progress = Progress()
-    lines = 0
-    errors = 0
-    with open(str(log_path), 'rt') as log_file, open(
-            str(url_file_name), 'w') as url_file, open(
-                str(url_file_name) + '.err', 'w') as err_url_file:
+    with open(str(log_path), 'rt') as log_file, open(str(url_file_name),
+                                                     'w') as url_file:
+        err_url_file = None
+        if config['DEBUG']:
+            err_url_file = open(str(url_file_name) + '.err', 'w')
+
         tsv_writer = csv.writer(
             url_file, delimiter='\t', quoting=csv.QUOTE_NONE)
         for line in log_file:
@@ -218,8 +220,13 @@ def get_url_info(config, log_path, tmp_dir_name):
                      match.group(2),
                      random.random()])
             else:
-                print(line, file=err_url_file, end='')
+                if err_url_file:
+                    print(line, file=err_url_file, end='')
                 progress.inc('errors', 1)
+
+        if err_url_file is not None:
+            err_url_file.close()
+
     progress.report('Finished')
     if progress.count == 0:
         logging.info('No lines in the log file {!s}'.format(log_path))
@@ -228,6 +235,7 @@ def get_url_info(config, log_path, tmp_dir_name):
         msg = 'Too many unparsed lines in {!s}'.format(log_path)
         logging.error(msg)
         raise Exception(msg)
+
     return url_file_name
 
 
@@ -305,12 +313,29 @@ class StatCollector:
 class ReportCollector:
     """Class intended to find top N urls by time_sum"""
 
-    def __init__(self, config):
+    def __init__(self, config, stat_file_name):
         self.config = config
         self.storage = []
 
+        self.stat_file = None
+        self.tsv_writer = None
+        if stat_file_name is not None:
+            logging.info("Create stat file: %s", stat_file_name)
+            self.stat_file = open(str(stat_file_name), 'w')
+            self.tsv_writer = csv.writer(
+                self.stat_file, delimiter='\t', quoting=csv.QUOTE_NONE)
+
+    def __del__(self):
+        if self.stat_file is not None:
+            self.stat_file.close()
+
     def add(self, stat):
-        """Add new url with statistics"""
+        if self.tsv_writer is not None:
+            self.tsv_writer.writerow([
+                stat['url'], stat['count'], stat['time_sum'], stat['time_avg'],
+                stat['time_max'], stat['time_med']
+            ])
+
         idx = None
         for i in range(0, len(self.storage)):
             if stat['time_sum'] > self.storage[i]['time_sum']:
@@ -329,28 +354,31 @@ class ReportCollector:
         for stat in self.storage:
             stat['count_perc'] = stat['count'] * 100 / count
             stat['time_perc'] = stat['time_sum'] * 100 / time_sum
-        storage = self.storage
-        self.storage = []
-        return storage
+        return self.storage
 
 
 def get_report_info(config, collect_file_name, tmp_dir_name):
-    stat_file_name = pathlib.Path(tmp_dir_name) / 'stat.tsv'
-    logging.info('Extract stat data from %s to %s', collect_file_name,
-                 stat_file_name)
-    count = 0
-    time_sum = 0
-    report_collector = ReportCollector(config)
-    progress = Progress()
+    stat_file_name = None
+    if config['DEBUG']:
+        stat_file_name = pathlib.Path(tmp_dir_name) / 'stat.tsv'
+        logging.info('Extract stat data from %s to %s', collect_file_name,
+                     stat_file_name)
+    else:
+        logging.info('Extract stat data from %s', collect_file_name)
+
     report = None
-    with open(str(collect_file_name), 'rt') as collect_file, open(
-            str(stat_file_name), 'w') as stat_file:
+    with open(str(collect_file_name), 'rt') as collect_file:
+        count = 0
+        time_sum = 0
+        progress = Progress()
+
         curr_url = None
         stat_collector = StatCollector(config)
         tsv_reader = csv.reader(
             collect_file, delimiter='\t', quoting=csv.QUOTE_NONE)
-        tsv_writer = csv.writer(
-            stat_file, delimiter='\t', quoting=csv.QUOTE_NONE)
+
+        report_collector = ReportCollector(config, stat_file_name)
+
         for row in tsv_reader:
             progress.tick()
             progress.report()
@@ -358,18 +386,14 @@ def get_report_info(config, collect_file_name, tmp_dir_name):
             url = row[0]
             process_time = float(row[1])
             rnd = float(row[2])
-            process_time = float(process_time)
 
             if curr_url is None or curr_url != url:
                 if curr_url is not None:
                     stat = stat_collector.finish(curr_url)
                     report_collector.add(stat)
-                    tsv_writer.writerow([
-                        curr_url, stat['count'], stat['time_sum'],
-                        stat['time_avg'], stat['time_max'], stat['time_med']
-                    ])
                 curr_url = url
                 progress.inc('uniq')
+
             stat_collector.add(process_time, rnd)
             count += 1
             time_sum += process_time
@@ -377,10 +401,6 @@ def get_report_info(config, collect_file_name, tmp_dir_name):
         if curr_url is not None:
             stat = stat_collector.finish(curr_url)
             report_collector.add(stat)
-            tsv_writer.writerow([
-                curr_url, stat['count'], stat['time_sum'], stat['time_avg'],
-                stat['time_max'], stat['time_med']
-            ])
 
         report = report_collector.finish(count, time_sum)
         progress.report('Finished')
@@ -419,7 +439,7 @@ def store_report(config, report, date, tmp_dir_name):
 def main():
     config = setup()
 
-    log_file_name, log_is_gz, log_date = last_log(config)
+    log_file_name, log_is_gz, log_date = get_last_log(config)
 
     if log_file_name is None:
         logging.info('No logs found')
@@ -444,7 +464,8 @@ def main():
 
     report = get_report_info(config, collect_file_name, tmp_dir_name)
 
-    store_report_tsv(config, report, tmp_dir_name)
+    if config['DEBUG']:
+        store_report_tsv(config, report, tmp_dir_name)
 
     tmp_report_file_name = store_report(config, report, log_date, tmp_dir_name)
 
