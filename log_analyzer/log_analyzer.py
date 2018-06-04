@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # log_format ui_short '$remote_addr $remote_user $http_x_real_ip [$time_local] "$request" '

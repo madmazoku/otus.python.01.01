@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import unittest
@@ -36,7 +36,7 @@ class ScriptExecTest(unittest.TestCase):
             'report_html':
             pathlib.Path('test') / 'report' / 'report-2017.06.30.html'
         }
-        cmd = './log_analyzer.py --config test/config.json 2>/dev/null'
+        cmd = './log_analyzer.py --config test/config.json 2> /dev/null'
         subprocess.run(cmd, shell=True, check=True)
 
     @classmethod
@@ -52,7 +52,7 @@ class ScriptExecTest(unittest.TestCase):
 
     def test_report_html(self):
         report_html = None
-        with open(self.expected_files['report_html']) as file:
+        with open(str(self.expected_files['report_html'])) as file:
             report_html = json.load(file)
         self.assertListEqual(report_html, [{
             "url": "/api/v2/banner/26647998",
@@ -67,42 +67,42 @@ class ScriptExecTest(unittest.TestCase):
 
     def test_log_tsv(self):
         count = 0
-        with open(self.expected_files['log']) as url_error:
+        with open(str(self.expected_files['log'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 22)
 
     def test_url_tsv(self):
         count = 0
-        with open(self.expected_files['url']) as url_error:
+        with open(str(self.expected_files['url'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 20)
 
     def test_url_tsv_err(self):
         count = 0
-        with open(self.expected_files['url_error']) as url_error:
+        with open(str(self.expected_files['url_error'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 2)
 
     def test_collect_tsv(self):
         count = 0
-        with open(self.expected_files['collect']) as url_error:
+        with open(str(self.expected_files['collect'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 20)
 
     def test_stat_tsv(self):
         count = 0
-        with open(self.expected_files['stat']) as url_error:
+        with open(str(self.expected_files['stat'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 2)
 
     def test_report_tsv(self):
         count = 0
-        with open(self.expected_files['report']) as url_error:
+        with open(str(self.expected_files['report'])) as url_error:
             for line in url_error:
                 count += 1
         self.assertEqual(count, 1)
