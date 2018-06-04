@@ -38,13 +38,8 @@ LOG_PARSE_PATTERN = re.compile(
     '.+?\\]\\s"[^\\s"]+\\s([^\\s"]+)\\s.+\\s([\\d\\.]+)\\n')
 
 
-class LAE(Exception):
-    """Base class for exceptions in this module."""
-    pass
-
-
 class Progress:
-    """Class is intended to log progress fror some lengthly activity"""
+    """Class is intended to log progress for some lengthly activity"""
 
     def __init__(self):
         self.stat = {}
@@ -53,21 +48,17 @@ class Progress:
         self.count = 0
 
     def inc(self, stat_name, stat_val=1):
-        """Increment metric"""
         if stat_name not in self.stat:
             self.stat[stat_name] = 0
         self.stat[stat_name] += stat_val
 
     def val(self, stat_name):
-        """Get value of metric"""
         return self.stat[stat_name] if stat_name in self.stat else None
 
     def tick(self):
-        """Increment count"""
         self.count += 1
 
     def report(self, message=None):
-        """Write to log progress if needed"""
         curr_time = time.time()
         dt = curr_time - self.prev_time
         dtf = curr_time - self.start_time
@@ -85,14 +76,18 @@ class Progress:
             self.prev_time = curr_time
 
 
-def parse_config():
-    """Parse command line and config json file"""
+def parse_args():
     args_parser = argparse.ArgumentParser()
     args_parser.add_argument(
         "--config", help="path to configuration file in json format", type=str)
     args = args_parser.parse_args()
+    return args
 
-    config_json_path = DEFAULT_CONFIG_JSON_PATH if args.config is None else args.config
+
+def parse_config(config_json_path):
+    """Load config json file and merge it with default config"""
+    if config_json_path is None:
+        config_json_path = DEFAULT_CONFIG_JSON_PATH
 
     config_json = None
     with open(config_json_path) as config_json_file:
@@ -102,23 +97,44 @@ def parse_config():
     config.update(DEFAULT_CONFIG)
     config.update(config_json)
 
-    if config['SCRIPT_LOG_PATH'] is not None:
-        script_log_dir = pathlib.Path(config['SCRIPT_LOG_PATH'])
-        if not script_log_dir.parent.is_dir():
-            script_log_dir.parent.mkdir(parent=True, exist_ok=True)
-        logging.getLogger().addHandler(
-            logging.FileHandler(config['SCRIPT_LOG_PATH']))
+    return config, config_json_path
+
+
+def add_log_file(script_log_path):
+    """add file to write log"""
+    script_log_dir = pathlib.Path(script_log_path).parent
+    if not script_log_dir.is_dir():
+        script_log_dir.mkdir(parent=True, exist_ok=True)
+    logging.getLogger().addHandler(logging.FileHandler(script_log_path))
+
+
+def dump_config(config, config_json_path):
     logging.info("Scrip started")
     logging.info("CONFIG: %s", config_json_path)
     for k in sorted(config):
         v = config[k]
         logging.info('\t%s: %s', k, v)
 
+
+def setup():
+    """Prepare config and setup environment"""
+    logging.basicConfig(
+        format='[%(asctime)s] %(levelname).1s %(message)s',
+        datefmt='%Y.%m.%d %H:%M:%S',
+        level='INFO')
+
+    args = parse_args()
+
+    config, config_json_path = parse_config(args.config)
+    if config['SCRIPT_LOG_PATH'] is not None:
+        add_log_file(config['SCRIPT_LOG_PATH'])
+
+    dump_config(config, config_json_path)
+
     return config
 
 
 def last_log(config):
-    """Find last log file"""
     log_file_name = None
     log_date = None
     log_is_gz = None
@@ -138,22 +154,20 @@ def last_log(config):
             log_date = re.sub('(\\d{4})(\\d\\d)(\\d\\d)', '\\1.\\2.\\3',
                               log_date)
     else:
-        logging.warning('Log dir %s not found', log_dir)
+        logging.info('Log dir %s not found', log_dir)
 
     return log_file_name, log_is_gz, log_date
 
 
 def make_report_file_name(config, date):
-    """Make file name for report for date"""
     report_dir = pathlib.Path(config['REPORT_DIR'])
     if not report_dir.is_dir():
-        logging.warning('Report dir %s not found. Create it.', report_dir)
+        logging.info('Report dir %s not found. Create it.', report_dir)
         report_dir.mkdir(parents=True, exist_ok=True)
     return pathlib.Path(config['REPORT_DIR']) / 'report-{:s}.html'.format(date)
 
 
 def make_tmp_dir_name(config):
-    """Make temporary directory folder, name and object if needed"""
     tmp_dir = None
     tmp_dir_name = None
     if config['TMP_DIR'] is None:
@@ -162,14 +176,13 @@ def make_tmp_dir_name(config):
     else:
         tmp_dir_name = pathlib.Path(config['TMP_DIR'])
         if not tmp_dir_name.is_dir():
-            logging.warning('Tmp dir %s not found. Create it.', tmp_dir_name)
+            logging.info('Tmp dir %s not found. Create it.', tmp_dir_name)
             tmp_dir_name.mkdir(parents=True, exist_ok=True)
     logging.info('Tmp dir %s will be used.', tmp_dir_name)
     return tmp_dir, tmp_dir_name
 
 
 def decompress(config, log_file_name, tmp_dir_name):
-    """Decompress gzipped log file"""
     tmp_log_file_name = pathlib.Path(tmp_dir_name) / 'nginx-access-ui.log'
     logging.info('Uncompress log from %s to %s', log_file_name,
                  tmp_log_file_name)
@@ -185,7 +198,6 @@ def decompress(config, log_file_name, tmp_dir_name):
 
 
 def get_url_info(config, log_path, tmp_dir_name):
-    """Extract url and processing time from log"""
     url_file_name = pathlib.Path(tmp_dir_name) / 'url.tsv'
     logging.info('Extract data from %s to %s', log_path, url_file_name)
     progress = Progress()
@@ -210,17 +222,16 @@ def get_url_info(config, log_path, tmp_dir_name):
                 progress.inc('errors', 1)
     progress.report('Finished')
     if progress.count == 0:
-        logging.warning('No lines in the log file {!s}'.format(log_path))
+        logging.info('No lines in the log file {!s}'.format(log_path))
     if progress.val('errors') and progress.val(
             'errors') / progress.count > config['PARSE_ERROR_RATE']:
         msg = 'Too many unparsed lines in {!s}'.format(log_path)
         logging.error(msg)
-        raise LAE(msg)
+        raise Exception(msg)
     return url_file_name
 
 
 def collect_urls(config, url_file_name, tmp_dir_name):
-    """Sort urls"""
     collect_file_name = pathlib.Path(tmp_dir_name) / 'collect.tsv'
     logging.info('Sort data from %s to %s', url_file_name, collect_file_name)
     cmd = 'LC_ALL=C sort {!s} -k 1 -o {!s}'.format(url_file_name,
@@ -245,7 +256,7 @@ class StatCollector:
         self.new()
 
     def new(self):
-        """Data for new url will be passed"""
+        """Data for new url will be passed after call"""
         del self.median_bag[:]
         self.rate = 1
         self.count = 0
@@ -324,7 +335,6 @@ class ReportCollector:
 
 
 def get_report_info(config, collect_file_name, tmp_dir_name):
-    """Calculate report data"""
     stat_file_name = pathlib.Path(tmp_dir_name) / 'stat.tsv'
     logging.info('Extract stat data from %s to %s', collect_file_name,
                  stat_file_name)
@@ -379,7 +389,6 @@ def get_report_info(config, collect_file_name, tmp_dir_name):
 
 
 def store_report_tsv(config, report, tmp_dir_name):
-    """Store report to tsv file"""
     report_file_name = pathlib.Path(tmp_dir_name) / 'report.tsv'
     logging.info('Store report stat to file %s', report_file_name)
     with open(str(report_file_name), 'w') as report_file:
@@ -393,7 +402,6 @@ def store_report_tsv(config, report, tmp_dir_name):
 
 
 def store_report(config, report, date, tmp_dir_name):
-    """Render html template"""
     tmp_report_file_name = pathlib.Path(tmp_dir_name) / (
         'report-' + date + '.html')
     logging.info('Store report to %s', tmp_report_file_name)
@@ -409,26 +417,18 @@ def store_report(config, report, date, tmp_dir_name):
 
 
 def main():
-    """main function of script"""
-    logging.basicConfig(
-        format='[%(asctime)s] %(levelname).1s %(message)s',
-        datefmt='%Y.%m.%d %H:%M:%S',
-        level='INFO')
-
-    config = parse_config()
-    if config is None:
-        return
+    config = setup()
 
     log_file_name, log_is_gz, log_date = last_log(config)
 
     if log_file_name is None:
-        logging.warning('No logs found')
+        logging.info('No logs found')
         return
 
     report_file_name = make_report_file_name(config, log_date)
     if report_file_name.is_file():
-        logging.warning('Last log %s already reported to %s', log_file_name,
-                        report_file_name)
+        logging.info('Last log %s already reported to %s', log_file_name,
+                     report_file_name)
         return
 
     logging.info('Report log %s to %s', log_file_name, report_file_name)
