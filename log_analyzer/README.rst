@@ -102,11 +102,7 @@ Default config
         "REPORT_TEMPLATE": "./report.html",
         "LOG_DIR": "./log",
         "PARSE_ERROR_RATE": 0.01,
-        "MEDIAN_BAG_SIZE": 1000,
-        "MEDIAN_BAG_SAMPLE_RATE": 0.75,
-        "TMP_DIR": null,
-        "SCRIPT_LOG_PATH": null,
-        "DEBUG": false
+        "SCRIPT_LOG_PATH": null
     }
 
 
@@ -133,51 +129,6 @@ Default config will be updated from config json file.
 ``PARSE_ERROR_RATE``
     Allowed share size for unparsed lines in log
 
-``MEDIAN_BAG_SIZE``
-    Number of samples for median processing time apprising
-
-``MEDIAN_BAG_SAMPLE_RATE``
-    Rate of sampling change if there too many of samples
-
-``TMP_DIR``
-    Where to store temporary files. Use system tmp dir if null.
-
 ``SCRIPT_LOG_PATH``
     Where to store script logging, in addition to STDERR. Do not write to file
     if null.
-
-``DEBUG``
-    Enable writing for temporary files ``url.tsv.err``, ``stat.tsv``, 
-    ``report.tsv``
-
-Temporary files
-===============
-
-Followed files will be created in temporary directory:
-
-``nginx-access-ui.log``
-    Uncompressed source if log file is compressed
-
-``url.tsv``
-    Extracted from log data. File format is:
-    ``$url`` ``$processing_time`` ``$random_value``
-
-``url.tsv.err``
-    Unparsed lines from log data.
-
-``collect.tsv``
-    Sorted by url data extracted from log. File format is:
-
-    ``$url`` ``$processing_time`` ``$random_value``
-
-``stat.tsv``
-    Statistic aggregated by url. File format is:
-
-    ``$url`` ``$count`` ``$time_sum`` ``$time_avg`` ``$time_max``
-    ``$time_med``
-
-``report.tsv``
-    Report data sorted by ``time_sum``. File format is:
-
-    ``$url`` ``$count`` ``$count_perc`` ``$time_sum`` ``$time_perc``
-    ``$time_avg`` ``$time_max`` ``$time_med``
