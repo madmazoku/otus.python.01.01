@@ -2,11 +2,7 @@
     "REPORT_SIZE": 1,
     "REPORT_DIR": "test/report",
     "LOG_DIR": "test/log",
-    "TMP_DIR": "test/tmp",
-    "REPORT_TEMPLATE": "test/report.html",
-    "SCRIPT_LOG_PATH": "test/log_analyzer.log",
     "PARSE_ERROR_RATE": 0.5,
-    "MEDIAN_BAG_SIZE": 10,
-    "MEDIAN_BAG_SAMPLE_RATE": 0.5,
-    "DEBUG": true
+    "REPORT_TEMPLATE": "test/report.json",
+    "SCRIPT_LOG_PATH": "test/log_analyzer.log"
 }
