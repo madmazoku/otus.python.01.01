@@ -133,7 +133,8 @@ def make_report_file_path(config, log_info):
 
 
 def parse_log(config, log_info):
-    with (gzip.open if log_info.is_gz else open)(str(log_info.file_path), 'rt') as log_file:
+    open_func = gzip.open if log_info.is_gz else open
+    with open_func(str(log_info.file_path), 'rt') as log_file:
         line_count = 0
         error_count = 0
         for line in log_file:
@@ -196,12 +197,16 @@ def make_report_info(config, urls_info):
 
 
 def render_report(config, report_file_path, report_info):
+    table_json = json.dumps(report_info)
     template_file_path = pathlib.Path(config.REPORT_TEMPLATE)
-    with open(str(template_file_path), 'rt') as template_file:
-        with open(str(report_file_path), 'wt') as report_file:
-            template = Template(template_file.read())
-            table_json = json.dumps(report_info)
-            report_file.write(template.safe_substitute(table_json=table_json))
+    template = Template(template_file_path.read_text())
+    tmp_report_file_path = report_file_path.with_suffix(report_file_path.suffix + '.tmp')
+    try:
+        tmp_report_file_path.write_text(template.safe_substitute(table_json=table_json))
+        tmp_report_file_path.rename(report_file_path)
+    finally:
+        if tmp_report_file_path.is_file():
+            tmp_report_file_path.unlink()
 
 
 def main():
